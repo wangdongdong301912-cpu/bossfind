@@ -1,4 +1,4 @@
-# BossFind
+# BossFind,BOSS自动化批量投简历工具
 
 本地优先的 Boss 直聘岗位筛选、招呼文案和简单问答 MVP。
 
