@@ -133,6 +133,11 @@ async def collect_radar(payload: RadarCollectRequest):
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@app.post("/api/radar/collect/pause")
+def pause_radar_collect():
+    return services.pause_radar_collection()
+
+
 @app.get("/api/radar/jobs")
 def radar_jobs(limit: int = 100, priority: str | None = None):
     return services.list_job_snapshots(limit, priority)

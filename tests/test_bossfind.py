@@ -212,6 +212,38 @@ def test_collect_radar_jobs_persists_ranked_snapshots(monkeypatch):
     assert len(services.list_job_snapshots(limit=10)) == 2
 
 
+def test_pause_radar_collection_cancels_active_collect(monkeypatch):
+    import asyncio
+    from app.schemas import CampaignPayload
+
+    class SlowRadarBrowser:
+        async def status(self):
+            return {"state": "ready", "message": "ready"}
+
+        async def search_jobs_with_diagnostics(self, *_args, **_kwargs):
+            await asyncio.sleep(10)
+            return {"jobs": [{"job_id": "late-job", "job_title": "迟到岗位"}], "diagnostics": {}}
+
+    async def scenario():
+        campaign = services.get_campaign()
+        campaign.update({"dry_run": True, "work_start": "00:00", "work_end": "23:59"})
+        services.update_campaign(CampaignPayload(**campaign))
+        monkeypatch.setattr(services, "existing_browser_adapter", SlowRadarBrowser())
+
+        task = asyncio.create_task(services.collect_radar_jobs(limit=20))
+        await asyncio.sleep(0.05)
+        pause = services.pause_radar_collection()
+        result = await task
+        return pause, result
+
+    pause, result = asyncio.run(scenario())
+
+    assert pause["status"] == "pause_requested"
+    assert result["status"] == "paused"
+    assert result["snapshots"] == []
+    assert services.pause_radar_collection()["status"] == "idle"
+
+
 def test_ranking_extracts_work_time_weekend_and_priority():
     from app.ranking import rank_job
 
@@ -893,6 +925,65 @@ def test_live_run_stops_after_twenty_successful_companies(monkeypatch):
     assert result["processed"] == 20
     assert len(browser.contacted) == 20
     assert len(services.list_job_snapshots(limit=30)) >= 20
+
+
+def test_live_run_uses_selected_radar_jobs_without_search(monkeypatch):
+    import asyncio
+    from app.browser_bridge import ContactResult
+    from app.schemas import CampaignPayload
+
+    class SelectedRadarBrowser:
+        def __init__(self):
+            self.contacted = []
+
+        async def status(self):
+            return {"state": "ready", "message": "ready"}
+
+        async def current_job_page_context(self):
+            return {"available": False}
+
+        async def search_jobs_with_diagnostics(self, *_args, **_kwargs):
+            raise AssertionError("manual radar outreach must not run live search")
+
+        async def contact_job(self, job, *_args, **_kwargs):
+            self.contacted.append(job["job_id"])
+            return ContactResult("sent", "sent")
+
+        async def random_pause(self, *_args, **_kwargs):
+            return None
+
+    for index in range(2):
+        database.upsert_job_snapshot({
+            "job_id": f"selected-{index}",
+            "job_url": f"https://www.zhipin.com/job_detail/selected-{index}.html",
+            "job_title": "数据分析师",
+            "company": f"精选公司{index}",
+            "salary": "12-18K",
+            "city": "杭州",
+            "experience": "1-3年",
+            "education": "本科",
+            "match_score": 96,
+            "priority_level": "S",
+            "match_reasons": ["用户确认"],
+        })
+
+    campaign = services.get_campaign()
+    campaign.update({"dry_run": True, "daily_limit": 30, "work_start": "00:00", "work_end": "23:59"})
+    services.update_campaign(CampaignPayload(**campaign))
+    browser = SelectedRadarBrowser()
+    monkeypatch.setattr(services, "existing_browser_adapter", browser)
+
+    result = asyncio.run(services.run_campaign(RunRequest(
+        limit=2,
+        min_successful_contacts=2,
+        selected_job_ids=["selected-0", "selected-1"],
+        force_live=True,
+        confirm_external_action=True,
+    ), run_id=None))
+
+    assert result["sent"] == 2
+    assert result["target_success"] == 2
+    assert browser.contacted == ["selected-0", "selected-1"]
 
 
 def test_live_run_expands_candidate_pool_before_contacting(monkeypatch):

@@ -19,6 +19,8 @@ DEMO_JOBS = [
 ]
 
 _ACTIVE_TASKS: dict[int, asyncio.Task] = {}
+_ACTIVE_RADAR_TASK: asyncio.Task | None = None
+_RADAR_PAUSE_REQUESTED = False
 
 
 REVIEW_ONLY_WORDS = ["身份证", "身份证号", "手机号", "微信", "住址", "面试时间", "确认入职", "保证", "承诺"]
@@ -282,6 +284,35 @@ def list_job_snapshots(limit: int = 100, priority: str | None = None) -> list[di
     return database.list_job_snapshots(min(max(limit, 1), 300), priority)
 
 
+def _clean_selected_job_ids(job_ids: list[str] | None) -> list[str]:
+    return list(dict.fromkeys(str(job_id).strip() for job_id in (job_ids or []) if str(job_id).strip()))
+
+
+def _selected_snapshot_candidates(job_ids: list[str]) -> list[dict[str, Any]]:
+    selected = _clean_selected_job_ids(job_ids)
+    if not selected:
+        return []
+    snapshots_by_id = {job["job_id"]: job for job in list_job_snapshots(limit=300)}
+    candidates: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for job_id in selected:
+        snapshot = snapshots_by_id.get(job_id)
+        if not snapshot:
+            missing.append(job_id)
+            continue
+        job = dict(snapshot)
+        job["reason"] = "用户在岗位雷达中确认选择"
+        job["source"] = "radar_selected"
+        job["job_url"] = job.get("job_url") or ""
+        job["salary"] = job.get("salary") or ""
+        job["recruiter"] = job.get("recruiter") or ""
+        job["description"] = job.get("description") or ""
+        candidates.append(job)
+    if missing:
+        raise ValueError(f"以下岗位快照不存在或已过期：{', '.join(missing[:5])}")
+    return candidates
+
+
 def pause_run(run_id: int) -> dict[str, Any]:
     return database.mark_run_control(run_id, "pause")
 
@@ -327,8 +358,10 @@ async def start_live_workflow(request: RunRequest) -> dict[str, Any]:
     issues = _campaign_safety_issues(campaign)
     if issues:
         raise ValueError("; ".join(issues))
-    total_limit = max(20, request.min_successful_contacts)
-    run = database.create_run("live_workflow", total_limit, "queued")
+    selected_count = len(_clean_selected_job_ids(request.selected_job_ids))
+    total_limit = selected_count if selected_count else max(20, request.min_successful_contacts)
+    mode = "radar_selected_workflow" if selected_count else "live_workflow"
+    run = database.create_run(mode, total_limit, "queued")
     _log_security_event(run["id"], "info", "preflight", "Safety preflight passed.")
     for warning in _preflight_safety_warnings(campaign, request):
         _log_security_event(run["id"], "warning", "preflight", warning)
@@ -376,28 +409,60 @@ async def preview_live_jobs(limit: int = 20) -> list[dict[str, Any]]:
 
 
 async def collect_radar_jobs(limit: int = 80) -> dict[str, Any]:
+    global _ACTIVE_RADAR_TASK, _RADAR_PAUSE_REQUESTED
+    current_task = asyncio.current_task()
+    if _ACTIVE_RADAR_TASK is not None and not _ACTIVE_RADAR_TASK.done() and _ACTIVE_RADAR_TASK is not current_task:
+        raise ValueError("岗位采集正在进行中，请先暂停当前采集后再重试。")
+    _ACTIVE_RADAR_TASK = current_task
+    _RADAR_PAUSE_REQUESTED = False
     campaign = get_campaign()
-    status = await existing_browser_adapter.status()
-    if status["state"] != "ready":
-        _log_security_event(None, "warning", "browser_not_ready", status["message"])
-        raise ValueError(status["message"])
     max_results = min(max(limit, 1), TARGET_CANDIDATE_POOL)
-    if hasattr(existing_browser_adapter, "search_jobs_with_diagnostics"):
-        result = await existing_browser_adapter.search_jobs_with_diagnostics(campaign, max_results=max_results)
-        jobs = result.get("jobs", [])
-        diagnostics = result.get("diagnostics", {})
-    else:
-        jobs = await existing_browser_adapter.search_jobs(campaign, max_results=max_results)
-        diagnostics = {"cards_read": len(jobs), "examples": []}
-    _save_job_snapshots(jobs)
-    snapshots = list_job_snapshots(limit=max_results)
-    return {
-        "mode": "radar_collect",
-        "collected": len(jobs),
-        "snapshots": snapshots,
-        "diagnostics": diagnostics,
-        "message": f"已采集并排序 {len(jobs)} 个岗位，不会自动投递。",
-    }
+    try:
+        status = await existing_browser_adapter.status()
+        if status["state"] != "ready":
+            _log_security_event(None, "warning", "browser_not_ready", status["message"])
+            raise ValueError(status["message"])
+        if hasattr(existing_browser_adapter, "search_jobs_with_diagnostics"):
+            result = await existing_browser_adapter.search_jobs_with_diagnostics(campaign, max_results=max_results)
+            jobs = result.get("jobs", [])
+            diagnostics = result.get("diagnostics", {})
+        else:
+            jobs = await existing_browser_adapter.search_jobs(campaign, max_results=max_results)
+            diagnostics = {"cards_read": len(jobs), "examples": []}
+        _save_job_snapshots(jobs)
+        snapshots = list_job_snapshots(limit=max_results)
+        return {
+            "mode": "radar_collect",
+            "status": "completed",
+            "collected": len(jobs),
+            "snapshots": snapshots,
+            "diagnostics": diagnostics,
+            "message": f"已采集并排序 {len(jobs)} 个岗位，不会自动投递。",
+        }
+    except asyncio.CancelledError:
+        snapshots = list_job_snapshots(limit=max_results)
+        return {
+            "mode": "radar_collect",
+            "status": "paused",
+            "collected": 0,
+            "snapshots": snapshots,
+            "diagnostics": {"paused": True},
+            "message": "岗位采集已暂停，已保留当前岗位快照。",
+        }
+    finally:
+        if _ACTIVE_RADAR_TASK is current_task:
+            _ACTIVE_RADAR_TASK = None
+            _RADAR_PAUSE_REQUESTED = False
+
+
+def pause_radar_collection() -> dict[str, Any]:
+    global _RADAR_PAUSE_REQUESTED
+    task = _ACTIVE_RADAR_TASK
+    if task is None or task.done():
+        return {"status": "idle", "message": "当前没有正在进行的岗位采集。"}
+    _RADAR_PAUSE_REQUESTED = True
+    task.cancel()
+    return {"status": "pause_requested", "message": "已请求暂停岗位采集。"}
 
 
 def _inside_work_window(campaign: dict[str, Any]) -> bool:
@@ -444,14 +509,16 @@ async def run_campaign(request: RunRequest, run_id: int | None = None) -> dict[s
     campaign, sync_note = await _campaign_for_current_boss_page(campaign)
     sent_today = database.count_sent_today()
     remaining = max(0, campaign["daily_limit"] - sent_today)
-    target_success = max(20, request.min_successful_contacts)
+    selected_job_ids = _clean_selected_job_ids(request.selected_job_ids)
+    target_success = len(selected_job_ids) if selected_job_ids else max(20, request.min_successful_contacts)
     if remaining < target_success:
         message = f"今日剩余额度不足：还剩 {remaining} 个，至少需要成功投递 {target_success} 个。请把每日上限调到不低于 20，或明天再执行。"
         _log_security_event(run_id, "warning", "quota_below_target", message)
         raise ValueError(message)
 
     if run_id is not None:
-        database.update_run(run_id, total_limit=target_success, current_step=f"building candidate pool for {target_success} successful contacts")
+        step = "loading selected radar jobs" if selected_job_ids else f"building candidate pool for {target_success} successful contacts"
+        database.update_run(run_id, total_limit=target_success, current_step=step)
 
     desired_candidate_pool = max(target_success * 2, target_success + 10)
     candidates_by_job: dict[str, dict[str, Any]] = {}
@@ -459,56 +526,70 @@ async def run_campaign(request: RunRequest, run_id: int | None = None) -> dict[s
     deduped = 0
     fresh_candidates = []
     seen_companies: set[str] = set()
-    for attempt in _search_attempts(campaign, target_success):
-        attempt_label = attempt["label"]
-        attempt_campaign = attempt["campaign"]
-        if run_id is not None:
-            database.update_run(run_id, current_step=f"searching jobs: {attempt_label} ({len(fresh_candidates)}/{desired_candidate_pool} candidates)")
-        try:
-            if hasattr(existing_browser_adapter, "search_jobs_with_diagnostics"):
-                search_result = await existing_browser_adapter.search_jobs_with_diagnostics(attempt_campaign, max_results=attempt["max_results"])
-                attempt_candidates = search_result["jobs"]
-                attempt_diagnostics = search_result.get("diagnostics", {})
-            else:
-                attempt_candidates = await existing_browser_adapter.search_jobs(attempt_campaign, max_results=attempt["max_results"])
-                attempt_diagnostics = {"cards_read": len(attempt_candidates), "examples": []}
-        except Exception as exc:
-            if not _is_transient_cdp_error(exc):
-                raise
-            message = f"搜索阶段 Chrome 瞬时断开：{str(exc).splitlines()[0][:160]}；已保留 {len(fresh_candidates)} 个候选继续处理。"
-            _log_security_event(run_id, "warning", "search_transient_disconnect", message)
-            if len(fresh_candidates) >= target_success:
-                break
-            continue
-        _save_job_snapshots(attempt_candidates)
-        attempt_diagnostics["accepted"] = len(attempt_candidates)
-        diagnostics = _merge_diagnostics(diagnostics, attempt_diagnostics, attempt_label)
-        for job in attempt_candidates:
+    if selected_job_ids:
+        selected_candidates = _selected_snapshot_candidates(selected_job_ids)
+        for job in selected_candidates:
             job_id = str(job.get("job_id") or "").strip()
             company = str(job.get("company", "")).strip()
-            company_key = company.lower()
             if not job_id or not company:
                 deduped += 1
                 continue
-            if job_id in candidates_by_job:
+            if database.was_contacted(job_id) or database.was_company_contacted(company):
                 deduped += 1
                 continue
-            if database.was_contacted(job_id) or database.was_company_contacted(company) or company_key in seen_companies:
-                deduped += 1
-                continue
-            candidates_by_job[job_id] = job
-            seen_companies.add(company_key)
             fresh_candidates.append(job)
+        diagnostics.update({"manual_selected": len(selected_job_ids), "fresh_candidates": len(fresh_candidates), "deduped_existing_or_company": deduped})
+    else:
+        for attempt in _search_attempts(campaign, target_success):
+            attempt_label = attempt["label"]
+            attempt_campaign = attempt["campaign"]
+            if run_id is not None:
+                database.update_run(run_id, current_step=f"searching jobs: {attempt_label} ({len(fresh_candidates)}/{desired_candidate_pool} candidates)")
+            try:
+                if hasattr(existing_browser_adapter, "search_jobs_with_diagnostics"):
+                    search_result = await existing_browser_adapter.search_jobs_with_diagnostics(attempt_campaign, max_results=attempt["max_results"])
+                    attempt_candidates = search_result["jobs"]
+                    attempt_diagnostics = search_result.get("diagnostics", {})
+                else:
+                    attempt_candidates = await existing_browser_adapter.search_jobs(attempt_campaign, max_results=attempt["max_results"])
+                    attempt_diagnostics = {"cards_read": len(attempt_candidates), "examples": []}
+            except Exception as exc:
+                if not _is_transient_cdp_error(exc):
+                    raise
+                message = f"搜索阶段 Chrome 瞬时断开：{str(exc).splitlines()[0][:160]}；已保留 {len(fresh_candidates)} 个候选继续处理。"
+                _log_security_event(run_id, "warning", "search_transient_disconnect", message)
+                if len(fresh_candidates) >= target_success:
+                    break
+                continue
+            _save_job_snapshots(attempt_candidates)
+            attempt_diagnostics["accepted"] = len(attempt_candidates)
+            diagnostics = _merge_diagnostics(diagnostics, attempt_diagnostics, attempt_label)
+            for job in attempt_candidates:
+                job_id = str(job.get("job_id") or "").strip()
+                company = str(job.get("company", "")).strip()
+                company_key = company.lower()
+                if not job_id or not company:
+                    deduped += 1
+                    continue
+                if job_id in candidates_by_job:
+                    deduped += 1
+                    continue
+                if database.was_contacted(job_id) or database.was_company_contacted(company) or company_key in seen_companies:
+                    deduped += 1
+                    continue
+                candidates_by_job[job_id] = job
+                seen_companies.add(company_key)
+                fresh_candidates.append(job)
+                if len(fresh_candidates) >= desired_candidate_pool:
+                    break
             if len(fresh_candidates) >= desired_candidate_pool:
                 break
-        if len(fresh_candidates) >= desired_candidate_pool:
-            break
-    diagnostics["fresh_candidates"] = len(fresh_candidates)
-    diagnostics["deduped_existing_or_company"] = deduped
+        diagnostics["fresh_candidates"] = len(fresh_candidates)
+        diagnostics["deduped_existing_or_company"] = deduped
     candidates = fresh_candidates
     records: list[dict[str, Any]] = []
     sent = 0
-    if len(candidates) < target_success:
+    if not selected_job_ids and len(candidates) < target_success:
         message = _diagnostic_message(campaign, diagnostics, deduped)
         shortfall_message = f"候选池不足：三阶段搜索后只有 {len(candidates)} 个符合条件且未沟通过的公司，未达到 {target_success} 个；本批未开始真实投递。"
         message = f"{message} {shortfall_message}"
@@ -553,7 +634,7 @@ async def run_campaign(request: RunRequest, run_id: int | None = None) -> dict[s
             "job_id": job["job_id"], "job_url": job["job_url"], "job_title": job["job_title"],
             "company": job["company"], "salary": job["salary"], "recruiter": job.get("recruiter", ""),
             "description": job.get("description", ""), "match_score": job["match_score"],
-            "status": outcome.status, "message": greeting, "reason": f"{job['reason']}；{outcome.message}",
+            "status": outcome.status, "message": greeting, "reason": f"{job.get('reason', '岗位雷达匹配')}；{outcome.message}",
             "source": "boss_live",
             "run_id": run_id,
         }

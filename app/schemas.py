@@ -65,6 +65,7 @@ class RunRequest(BaseModel):
     session_token: str | None = None
     limit: int = Field(default=5, ge=1, le=100)
     min_successful_contacts: int = Field(default=20, ge=1, le=100)
+    selected_job_ids: list[str] = Field(default_factory=list, max_length=100)
     confirm_external_action: bool = False
     force_dry: bool = False
     force_live: bool = False

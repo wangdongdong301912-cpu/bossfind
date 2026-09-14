@@ -7,9 +7,9 @@
   <title>BossFind · 求职自动驾驶</title>
   <link rel="manifest" href="/static/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
-  <link rel="stylesheet" href="/static/styles.css">
-  <link rel="stylesheet" href="/static/mobile-fixes.css">
-  <script src="/static/app.js?v=20260818-radar" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=20260915-radar-layout">
+  <link rel="stylesheet" href="/static/mobile-fixes.css?v=20260915-radar-layout">
+  <script src="/static/app.js?v=20260914-live-choice" defer></script>
 </head>
 <body>
   <div class="shell">
@@ -56,7 +56,7 @@
       </section>
 
       <section class="view" id="view-radar">
-        <div class="page-intro"><div><span class="eyebrow">JOB RADAR</span><h2>候选岗位优先级列表</h2><p>只采集和排序，不自动投递；适合先看岗位质量，再决定投递队列。</p></div><div class="page-actions"><button class="btn secondary" id="refresh-radar">↻ 刷新列表</button><button class="btn primary" id="collect-radar">⌕ 采集岗位</button></div></div>
+        <div class="page-intro"><div><span class="eyebrow">JOB RADAR</span><h2>候选岗位优先级列表</h2><p>只采集和排序，不自动投递；适合先看岗位质量，再决定投递队列。</p></div><div class="page-actions"><button class="btn secondary" id="refresh-radar">↻ 刷新列表</button><button class="btn secondary" id="radar-select-all">✓ 全选 S 级</button><button class="btn primary" id="radar-batch-outreach" disabled>▶ 批量打招呼</button><button class="btn primary" id="collect-radar">⌕ 采集岗位</button></div></div>
         <div class="stats radar-stats">
           <article><i class="mint">S</i><div><span>S 级岗位</span><strong id="radar-stat-s">0</strong></div></article>
           <article><i class="blue">A</i><div><span>A 级岗位</span><strong id="radar-stat-a">0</strong></div></article>
@@ -97,6 +97,20 @@
         <article class="panel"><div class="record-table"><div class="record-row record-head"><span>岗位</span><span>匹配度</span><span>状态</span><span>生成内容</span><span>时间</span></div><div id="record-body"></div></div></article>
       </section>
     </main>
+  </div>
+
+  <div class="modal-backdrop" id="live-mode-modal">
+    <div class="modal">
+      <button class="close" id="close-live-mode" aria-label="关闭">×</button>
+      <div class="modal-icon">▶</div>
+      <h2>选择真实投递方式</h2>
+      <p>一键自动会按策略自动搜索并打招呼到目标数量；雷达确认会先采集岗位，等你勾选后再单个或批量打招呼。</p>
+      <div class="choice-actions">
+        <button class="btn primary wide" id="live-auto-mode">▶ 一键自动投递</button>
+        <button class="btn secondary wide" id="live-radar-mode">⌕ 去岗位雷达确认</button>
+      </div>
+      <div class="security-note">真实打招呼会使用当前 Chrome 中已登录的 BOSS 账号。</div>
+    </div>
   </div>
 
 </body>

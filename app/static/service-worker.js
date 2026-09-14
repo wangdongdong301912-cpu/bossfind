@@ -1,9 +1,9 @@
-const CACHE_NAME = "bossfind-radar-v20260818";
+const CACHE_NAME = "bossfind-radar-v20260915-layout";
 const CORE_ASSETS = [
   "/",
-  "/static/styles.css",
-  "/static/mobile-fixes.css",
-  "/static/app.js?v=20260818-radar",
+  "/static/styles.css?v=20260915-radar-layout",
+  "/static/mobile-fixes.css?v=20260915-radar-layout",
+  "/static/app.js?v=20260914-live-choice",
   "/static/manifest.webmanifest",
   "/static/icons/icon-192.svg",
   "/static/icons/icon-512.svg"

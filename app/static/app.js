@@ -1,4 +1,4 @@
-const state = { campaign: null, preview: [], records: [], runs: [], radarJobs: [], radarPriority: "", browser: null, activeRunId: null, pollTimer: null, pollDelay: 2500, expandedRunId: null };
+const state = { campaign: null, preview: [], records: [], runs: [], radarJobs: [], radarPriority: "", radarCollecting: false, radarSelectedIds: new Set(), radarConfirmMode: false, browser: null, activeRunId: null, pollTimer: null, pollDelay: 2500, expandedRunId: null };
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
@@ -149,6 +149,7 @@ function priorityLabel(level) {
 
 function renderRadarJobs() {
   const jobs = state.radarJobs || [];
+  state.radarSelectedIds = new Set([...state.radarSelectedIds].filter((id) => jobs.some((job) => job.job_id === id)));
   const counts = jobs.reduce((acc, job) => {
     acc[job.priority_level] = (acc[job.priority_level] || 0) + 1;
     return acc;
@@ -162,18 +163,37 @@ function renderRadarJobs() {
   if (!jobs.length) {
     container.className = "empty";
     container.innerHTML = `<b>⌕</b><strong>还没有岗位快照</strong><span>点击“采集岗位”后，会根据投递策略生成优先级列表。</span>`;
+    updateRadarSelectionActions();
     return;
   }
   container.className = "radar-job-list";
   container.innerHTML = jobs.map((job) => {
     const reasons = [...(job.match_reasons || []), ...(job.reject_reasons || [])].slice(0, 4);
     const welfare = job.welfare_tags || [];
+    const checked = state.radarSelectedIds.has(job.job_id) ? "checked" : "";
     return `<article class="radar-job">
+      <label class="radar-select"><input type="checkbox" data-radar-select="${escapeHtml(job.job_id)}" ${checked}><i></i></label>
       <div class="priority ${escapeHtml(job.priority_level)}"><strong>${escapeHtml(job.priority_level)}</strong><span>${priorityLabel(job.priority_level)}</span></div>
       <div class="radar-job-main"><div><strong>${escapeHtml(job.job_title)}</strong><span>${escapeHtml(job.company)} · ${escapeHtml(job.city || "城市未知")}</span></div><div class="job-tags">${welfare.slice(0, 6).map((item) => `<i>${escapeHtml(item)}</i>`).join("")}</div><p>${reasons.map(escapeHtml).join("；") || "暂无匹配说明"}</p></div>
-      <div class="radar-job-meta"><strong>${escapeHtml(job.salary || "-")}</strong><span>${escapeHtml(job.experience || "经验未知")} · ${escapeHtml(job.education || "学历未知")}</span><span>${escapeHtml(job.weekend_policy || "工作制未知")} ${escapeHtml(job.work_time || "")}</span><b>${job.match_score}%</b></div>
+      <div class="radar-job-meta"><strong>${escapeHtml(job.salary || "-")}</strong><span>${escapeHtml(job.experience || "经验未知")} · ${escapeHtml(job.education || "学历未知")}</span><span>${escapeHtml(job.weekend_policy || "工作制未知")} ${escapeHtml(job.work_time || "")}</span><b>${job.match_score}%</b><button class="btn secondary radar-single-outreach" data-radar-outreach="${escapeHtml(job.job_id)}">打招呼</button></div>
     </article>`;
   }).join("");
+  $$("[data-radar-select]").forEach((input) => input.onchange = () => {
+    if (input.checked) state.radarSelectedIds.add(input.dataset.radarSelect);
+    else state.radarSelectedIds.delete(input.dataset.radarSelect);
+    updateRadarSelectionActions();
+  });
+  $$("[data-radar-outreach]").forEach((button) => button.onclick = () => startRadarSelectedOutreach([button.dataset.radarOutreach]).catch((error) => alertMessage(error.message, "error")));
+  updateRadarSelectionActions();
+}
+
+function updateRadarSelectionActions() {
+  const count = state.radarSelectedIds.size;
+  const batch = $("#radar-batch-outreach");
+  if (batch) {
+    batch.disabled = count < 1;
+    batch.textContent = count ? `▶ 批量打招呼（${count}）` : "▶ 批量打招呼";
+  }
 }
 
 async function loadRadarJobs() {
@@ -186,8 +206,24 @@ async function loadRadarJobs() {
 
 async function collectRadarJobs() {
   const button = $("#collect-radar");
-  button.disabled = true;
-  button.textContent = "采集中…";
+  if (state.radarCollecting) {
+    button.disabled = true;
+    button.textContent = "暂停中…";
+    try {
+      const result = await api("/api/radar/collect/pause", { method: "POST" });
+      alertMessage(result.message || "已请求暂停岗位采集");
+    } catch (error) {
+      alertMessage(error.message, "error");
+      button.disabled = false;
+      button.textContent = "Ⅱ 暂停采集";
+    }
+    return;
+  }
+  state.radarCollecting = true;
+  button.disabled = false;
+  button.textContent = "Ⅱ 暂停采集";
+  button.classList.remove("primary");
+  button.classList.add("secondary");
   try {
     const result = await api("/api/radar/collect", { method: "POST", body: JSON.stringify({ limit: 120, force_live: true }) });
     state.radarJobs = result.snapshots || [];
@@ -195,7 +231,10 @@ async function collectRadarJobs() {
     alertMessage(result.message || "岗位采集完成");
   } catch (error) { alertMessage(error.message, "error"); }
   finally {
+    state.radarCollecting = false;
     button.disabled = false;
+    button.classList.remove("secondary");
+    button.classList.add("primary");
     button.textContent = "⌕ 采集岗位";
   }
 }
@@ -216,7 +255,20 @@ async function runCampaign() {
   finally { $$(".run-button").forEach((button) => { button.disabled = false; }); }
 }
 
+function openLiveModeChooser() {
+  $("#live-mode-modal").classList.add("open");
+}
+
+function closeLiveModeChooser() {
+  $("#live-mode-modal").classList.remove("open");
+}
+
 async function runLiveWorkflow() {
+  openLiveModeChooser();
+}
+
+async function runAutoLiveWorkflow() {
+  closeLiveModeChooser();
   $$(".live-run-button").forEach((button) => { button.disabled = true; });
   $$(".live-run-button").forEach((button) => { button.textContent = "▶ 正在真实执行…"; });
   try {
@@ -248,6 +300,58 @@ async function runLiveWorkflow() {
     $$(".live-run-button").forEach((button) => { button.textContent = "▶ 真实投递并回复 HR"; });
     renderMode();
   }
+}
+
+async function prepareRadarConfirmWorkflow() {
+  closeLiveModeChooser();
+  state.radarConfirmMode = true;
+  showView("radar");
+  await loadRadarJobs();
+  alertMessage("已进入雷达确认模式：先采集岗位，再勾选单个或多个岗位打招呼。");
+}
+
+async function startRadarSelectedOutreach(jobIds) {
+  const selected = [...new Set((jobIds || [...state.radarSelectedIds]).filter(Boolean))];
+  if (!selected.length) {
+    alertMessage("请先选择至少一个岗位。", "error");
+    return;
+  }
+  const latestCampaign = collectCampaign();
+  state.campaign = await api("/api/campaign", { method: "PUT", body: JSON.stringify(latestCampaign) });
+  renderCampaign();
+  const browser = await api("/api/browser/status");
+  state.browser = browser;
+  if (browser.state !== "ready") throw new Error(browser.message);
+  const confirmed = window.confirm(`即将对你在岗位雷达中确认的 ${selected.length} 个岗位发起真实打招呼。是否继续？`);
+  if (!confirmed) return;
+  const run = await api("/api/runs/start", {
+    method: "POST",
+    body: JSON.stringify({
+      session_token: null,
+      limit: selected.length,
+      min_successful_contacts: selected.length,
+      selected_job_ids: selected,
+      force_live: true,
+      confirm_external_action: true
+    })
+  });
+  state.activeRunId = run.id;
+  upsertRun(run);
+  renderRuns();
+  alertMessage(`已启动雷达确认批次 #${run.id}，共 ${selected.length} 个岗位。`);
+  await loadDashboard();
+  showView("activity");
+  pollRun(run.id);
+}
+
+function selectTopRadarJobs() {
+  const topJobs = (state.radarJobs || []).filter((job) => job.priority_level === "S").slice(0, Math.max(1, state.campaign?.daily_limit || 20));
+  if (!topJobs.length) {
+    alertMessage("当前列表没有 S 级岗位，请先采集或切换筛选。", "error");
+    return;
+  }
+  topJobs.forEach((job) => state.radarSelectedIds.add(job.job_id));
+  renderRadarJobs();
 }
 
 function buildLiveConfirmationMessage(campaign, remainingCount) {
@@ -450,9 +554,14 @@ function bindEvents() {
   $$('[data-goto]').forEach((button) => button.onclick = () => showView(button.dataset.goto));
   $$(".run-button").forEach((button) => button.onclick = runCampaign);
   $$(".live-run-button").forEach((button) => button.onclick = runLiveWorkflow);
+  $("#close-live-mode").onclick = closeLiveModeChooser;
+  $("#live-auto-mode").onclick = runAutoLiveWorkflow;
+  $("#live-radar-mode").onclick = () => prepareRadarConfirmWorkflow().catch((error) => alertMessage(error.message, "error"));
   $("#preview-button").onclick = previewJobs;
   $("#collect-radar").onclick = collectRadarJobs;
   $("#refresh-radar").onclick = loadRadarJobs;
+  $("#radar-select-all").onclick = selectTopRadarJobs;
+  $("#radar-batch-outreach").onclick = () => startRadarSelectedOutreach([...state.radarSelectedIds]).catch((error) => alertMessage(error.message, "error"));
   $$("#radar-filter button").forEach((button) => button.onclick = () => {
     state.radarPriority = button.dataset.priority || "";
     $$("#radar-filter button").forEach((item) => item.classList.toggle("active", item === button));
