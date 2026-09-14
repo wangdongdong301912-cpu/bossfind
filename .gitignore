@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+data/*.db
+data/*.db-*
+data/chrome-profile/
+data/*.log
+data/*.out.log
+data/*.err.log
+playwright-profile/
+*.log

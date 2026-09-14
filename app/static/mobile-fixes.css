@@ -1,0 +1,10 @@
+@media (max-width: 760px) {
+  .top-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .top-actions .secondary {
+    display: inline-flex;
+  }
+}

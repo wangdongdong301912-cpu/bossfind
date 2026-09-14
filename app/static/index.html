@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#082f2c">
+  <title>BossFind · 求职自动驾驶</title>
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.svg">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/mobile-fixes.css">
+  <script src="/static/app.js?v=20260818-radar" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">⌁</div><div><strong>BossFind</strong><span>求职自动驾驶 · Alpha</span></div></div>
+      <nav>
+        <button class="nav-item active" data-view="dashboard"><i>⌂</i><span>总览</span><b>›</b></button>
+        <button class="nav-item" data-view="radar"><i>⌕</i><span>岗位雷达</span><b>›</b></button>
+        <button class="nav-item" data-view="strategy"><i>◎</i><span>投递策略</span><b>›</b></button>
+        <button class="nav-item" data-view="answers"><i>◌</i><span>智能问答</span><b>›</b></button>
+        <button class="nav-item" data-view="activity"><i>≡</i><span>执行记录</span><b>›</b></button>
+      </nav>
+      <div class="safe-box"><i>✓</i><div><strong id="safe-title">安全演练模式</strong><span id="safe-note">默认不发送，Chrome 手动登录</span></div></div>
+      <div class="account-mini"><div class="avatar">人</div><div><strong id="mini-account">未连接 Chrome</strong><span id="mini-state">请先在 Chrome 手动登录 BOSS</span></div></div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div><span class="eyebrow">BOSS 直聘 · 嘉兴</span><h1 id="page-title">求职雷达</h1></div>
+        <div class="top-actions"><span class="mode" id="mode-label"><i></i>演练模式</span><button class="btn secondary" id="open-login-button">↗ 打开 Chrome 登录页</button><button class="btn secondary" id="connect-button">↻ 检查 Chrome 会话</button><button class="btn secondary run-button">✦ 运行演练</button><button class="btn primary live-run-button">▶ 真实投递并回复 HR</button></div>
+      </header>
+
+      <div id="alert-area"></div>
+
+      <section class="view active" id="view-dashboard">
+        <div class="hero">
+          <div><span class="live-label" id="hero-mode"><i></i>策略已就绪 · 安全演练</span><h2>让每一次招呼，<br>都更接近你想要的工作。</h2><p>复用当前已登录的 Chrome BOSS 会话，根据岗位、薪资和完整职位描述筛选；真实投递受每日限额、时段、去重和人工验证保护。</p><div class="hero-actions"><button class="btn secondary run-button">✦ 运行 5 条演练</button><button class="btn primary live-run-button">▶ 真实投递并回复 HR</button><button class="btn ghost" data-goto="strategy">⚙ 调整策略</button></div></div>
+          <div class="radar"><span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span><b>⌁</b><i class="dot d1"></i><i class="dot d2"></i><i class="dot d3"></i></div>
+        </div>
+
+        <div class="stats">
+          <article><i class="mint">◎</i><div><span>候选岗位</span><strong id="stat-matched">0</strong></div></article>
+          <article><i class="blue">↗</i><div><span>已生成招呼</span><strong id="stat-processed">0</strong></div></article>
+          <article><i class="amber">◇</i><div><span>真实发送</span><strong id="stat-sent">0</strong></div></article>
+          <article><i class="violet">◴</i><div><span>今日额度</span><strong id="stat-limit">20</strong></div></article>
+        </div>
+
+        <div class="two-col">
+          <article class="panel strategy-card"><div class="panel-head"><div><span class="eyebrow">ACTIVE STRATEGY</span><h3 id="summary-name">载入中…</h3></div><button class="icon-btn" data-goto="strategy">⚙</button></div><div class="summary-grid"><div><span>目标城市</span><strong id="summary-city">—</strong></div><div><span>薪资范围</span><strong id="summary-salary">—</strong></div><div><span>经验要求</span><strong id="summary-experience">—</strong></div></div><div class="tags" id="summary-tags"></div><div class="quota"><div><span>演练进度</span><strong id="quota-text">0 / 20</strong></div><div class="progress"><i id="quota-progress"></i></div></div></article>
+          <article class="panel checklist"><div class="panel-head"><div><span class="eyebrow">SITE ADAPTER</span><h3>上线前检查</h3></div><span class="shield">✓</span></div><ol><li class="done"><i>✓</i>策略与模板配置</li><li class="done"><i>✓</i>限额、间隔和时段</li><li class="done"><i>✓</i>复用现有 BOSS 登录会话</li><li class="done"><i>✓</i>真实执行前明确确认</li></ol><div class="adapter-note" id="adapter-note">正在读取适配器状态…</div></article>
+        </div>
+
+        <article class="panel preview-panel"><div class="panel-head"><div><span class="eyebrow">PREVIEW</span><h3>岗位匹配预览 <small>BOSS 实时数据</small></h3></div><button class="btn secondary" id="preview-button">⌕ 读取当前 BOSS</button></div><div id="job-list" class="empty"><b>⌁</b><strong>还没有预览结果</strong><span>读取当前已登录浏览器，检查岗位、薪资和职位描述匹配结果。</span></div></article>
+      </section>
+
+      <section class="view" id="view-radar">
+        <div class="page-intro"><div><span class="eyebrow">JOB RADAR</span><h2>候选岗位优先级列表</h2><p>只采集和排序，不自动投递；适合先看岗位质量，再决定投递队列。</p></div><div class="page-actions"><button class="btn secondary" id="refresh-radar">↻ 刷新列表</button><button class="btn primary" id="collect-radar">⌕ 采集岗位</button></div></div>
+        <div class="stats radar-stats">
+          <article><i class="mint">S</i><div><span>S 级岗位</span><strong id="radar-stat-s">0</strong></div></article>
+          <article><i class="blue">A</i><div><span>A 级岗位</span><strong id="radar-stat-a">0</strong></div></article>
+          <article><i class="amber">B</i><div><span>B 级复核</span><strong id="radar-stat-b">0</strong></div></article>
+          <article><i class="violet">Σ</i><div><span>岗位快照</span><strong id="radar-stat-total">0</strong></div></article>
+        </div>
+        <article class="panel radar-panel">
+          <div class="radar-toolbar">
+            <div class="segmented" id="radar-filter"><button class="active" data-priority="">全部</button><button data-priority="S">S</button><button data-priority="A">A</button><button data-priority="B">B</button><button data-priority="C">C</button></div>
+            <span id="radar-note">等待采集</span>
+          </div>
+          <div id="radar-list" class="empty"><b>⌕</b><strong>还没有岗位快照</strong><span>点击“采集岗位”后，会根据投递策略生成优先级列表。</span></div>
+        </article>
+      </section>
+
+      <section class="view" id="view-strategy">
+        <div class="page-intro"><div><span class="eyebrow">CAMPAIGN SETTINGS</span><h2>定义你的理想岗位</h2><p>先把选择标准说清楚，自动化才不会变成“广撒网”。</p></div><button class="btn primary" id="save-strategy">✓ 保存策略</button></div>
+        <form class="panel form-panel" id="strategy-form">
+          <div class="form-section"><div class="form-title"><i>◎</i><div><h3>岗位筛选</h3><p>用于匹配和排序岗位，不会直接触发投递。</p></div></div><div class="form-grid">
+            <label><span>策略名称</span><input id="field-name" required></label><label><span>目标城市</span><input id="field-city" required></label>
+            <label class="wide"><span>岗位关键词（逗号分隔）</span><input id="field-keywords" required></label><label class="wide"><span>排除关键词（逗号分隔）</span><input id="field-excluded"></label>
+            <label class="wide"><span>优先行业（逗号分隔）</span><input id="field-industries"></label><label><span>经验要求</span><select id="field-experience"><option>不限</option><option>1-3年</option><option>3-5年</option><option>5-10年</option></select></label>
+            <label><span>薪资范围（K）</span><div class="inline-input"><input id="field-salary-min" type="number" min="0"><em>至</em><input id="field-salary-max" type="number" min="0"></div></label>
+          </div></div>
+          <div class="form-section"><div class="form-title"><i>◌</i><div><h3>招呼文案</h3><p>支持变量：{job_title}、{company}、{experience}</p></div></div><label class="block"><textarea id="field-greeting" rows="5"></textarea><small id="greeting-count">0 / 500</small></label><div class="message-preview"><i>✦</i><p id="greeting-preview"></p></div></div>
+          <div class="form-section"><div class="form-title"><i>◴</i><div><h3>节奏与边界</h3><p>低频、随机间隔和工作时段是强制安全阀。</p></div></div><div class="form-grid"><label><span>每日上限</span><input id="field-limit" type="number" min="20" max="100"></label><label><span>随机间隔（秒）</span><div class="inline-input"><input id="field-interval-min" type="number"><em>至</em><input id="field-interval-max" type="number"></div></label><label><span>开始时间</span><input id="field-start" type="time"></label><label><span>结束时间</span><input id="field-end" type="time"></label></div><label class="switch-row"><div><strong>演练模式</strong><span>关闭后仍需页面联调和发送确认</span></div><input id="field-dry" type="checkbox"><i></i></label></div>
+        </form>
+      </section>
+
+      <section class="view" id="view-answers">
+        <div class="page-intro"><div><span class="eyebrow">RULE-BASED REPLIES</span><h2>简单问题自动建议，模糊问题交给人</h2><p>初版使用可解释的关键词规则，不替你擅自承诺。</p></div><button class="btn primary" id="save-answers">✓ 保存规则</button></div>
+        <div class="answer-layout"><article class="panel"><div class="panel-head"><div><span class="eyebrow">ANSWER RULES</span><h3>问答规则</h3></div><span class="count-badge" id="rule-count">0 条启用</span></div><div id="rule-list" class="rule-list"></div></article><aside class="panel simulator"><div class="panel-head"><div><span class="eyebrow">PLAYGROUND</span><h3>问答模拟器</h3></div><span class="shield">✦</span></div><p>输入招聘者的问题，查看会命中哪条规则。</p><textarea id="question-input" rows="5">这个岗位希望候选人什么时候可以到岗？</textarea><button class="btn primary wide" id="simulate-button">✦ 模拟回复</button><button class="btn secondary wide" id="auto-reply-button" type="button">▶ 扫描 BOSS 聊天并自动回复</button><div id="answer-result"></div><div class="boundary"><i>✓</i><span><strong>边界规则</strong>隐私、面试邀约、薪资承诺和未命中问题一律转人工。</span></div></aside></div>
+      </section>
+
+      <section class="view" id="view-activity">
+        <div class="page-intro"><div><span class="eyebrow">AUDIT LOG</span><h2>每一步都有迹可循</h2><p>演练记录和未来真实发送共用同一套审计结构。</p></div><button class="btn secondary" id="refresh-records">↻ 刷新</button></div>
+        <article class="panel run-panel"><div class="panel-head"><div><span class="eyebrow">RUN BATCHES</span><h3>执行批次</h3></div><span class="shield">✓</span></div><div id="run-list" class="run-list"></div></article>
+        <article class="panel"><div class="record-table"><div class="record-row record-head"><span>岗位</span><span>匹配度</span><span>状态</span><span>生成内容</span><span>时间</span></div><div id="record-body"></div></div></article>
+      </section>
+    </main>
+  </div>
+
+</body>
+</html>
+
